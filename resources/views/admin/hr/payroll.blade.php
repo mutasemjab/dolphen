@@ -4,12 +4,12 @@
 <section class="panel">
     <form class="filters"><label>{{ __('erp.month') }}<input type="month" name="month" value="{{ $month }}" required></label><button class="btn">{{ __('erp.filter') }}</button></form>
     <div class="table-wrap"><table><thead><tr>
-        @foreach(['employee_id','salary','overtime_pay','advance_deduction','net','paid_on','actions'] as $field)<th>{{ __('erp.'.$field) }}</th>
+        @foreach(['employee_id','salary','overtime_pay','holiday_overtime_pay','advance_deduction','net','paid_on','actions'] as $field)<th>{{ __('erp.'.$field) }}</th>
         @endforeach
     </tr></thead><tbody>
     @forelse($payrolls as $row)
         <tr><td><a href="{{ route('admin.payroll.show',$row) }}">{{ $row->employee->label }}</a></td>
-        @foreach(['salary','overtime_pay','advance_deduction','net'] as $field)<td>{{ \App\Support\Admin\Format::money($row->$field) }}</td>
+        @foreach(['salary','overtime_pay','holiday_overtime_pay','advance_deduction','net'] as $field)<td>{{ \App\Support\Admin\Format::money($row->$field) }}</td>
         @endforeach
         <td>{{ $row->paid_on ?: __('erp.unpaid') }}</td><td class="actions">
         @can('erp.hr.manage')
@@ -24,7 +24,7 @@
             </form>
         @endif
         @endcan</td></tr>
-    @empty<tr><td colspan="7" class="empty">{{ __('erp.no_data') }}</td></tr>
+    @empty<tr><td colspan="8" class="empty">{{ __('erp.no_data') }}</td></tr>
     @endforelse
     </tbody></table></div>{{ $payrolls->links('admin.pagination') }}
 </section>

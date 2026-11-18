@@ -73,7 +73,8 @@ class EmployeeAttendanceTest extends TestCase
         $partner = Partner::firstOrFail(); $this->assertNotEmpty($partner->code);
         $this->post(route('admin.masters.store','suppliers'),['name_ar'=>'Wrong kind','classification_id'=>$customerCategory->id,'active'=>1])->assertSessionHasErrors();
         $this->assertSame(1,Partner::count());
-        $this->post(route('admin.masters.store','products'), ['name_ar'=>'صنف','classification_id'=>Classification::where('kind','product')->value('id'),
+        $warehouse = \App\Models\Admin\Warehouse::create(['code'=>'W1','name_ar'=>'المستودع','name_en'=>'Warehouse']);
+        $this->post(route('admin.masters.store','products'), ['name_ar'=>'صنف','item_type'=>'finished','warehouse_id'=>$warehouse->id,'classification_id'=>Classification::where('kind','product')->value('id'),
             'base_unit_id'=>Unit::first()->id,'cost'=>'0','selling_price'=>'2','minimum_stock'=>'0','active'=>1])->assertSessionHasNoErrors();
         $this->assertNotEmpty(Product::first()->sku);
         $this->get(route('admin.masters.index','customers').'?classification_id='.$customerCategory->id)->assertSee('عميل جديد');
@@ -81,7 +82,7 @@ class EmployeeAttendanceTest extends TestCase
 
     public function test_employee_credentials_are_hashed_never_rendered_and_required_to_enable_login(): void
     {
-        $data = ['code'=>'E2','name_ar'=>'موظف جديد','hire_date'=>'2026-09-01','monthly_salary'=>'400','shift_id'=>$this->shift->id,'active'=>1,'username'=>'new-employee'];
+        $data = ['code'=>'E2','name_ar'=>'موظف جديد','hire_date'=>'2026-09-01','monthly_salary'=>'400','worker_type'=>'local','shift_id'=>$this->shift->id,'active'=>1,'username'=>'new-employee'];
         $this->post(route('admin.masters.store','employees'),$data)->assertSessionHasErrors();
         $data += ['password'=>'secure-test-password','password_confirmation'=>'secure-test-password'];
         $this->post(route('admin.masters.store','employees'),$data)->assertSessionHasNoErrors();

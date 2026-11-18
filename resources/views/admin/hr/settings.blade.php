@@ -24,6 +24,26 @@
         @endforeach
     </div>
     <p class="hint">{{ __('erp.lateness_help') }}</p>
+    <h2>{{ __('erp.holiday_and_foreign_overtime') }}</h2>
+    <div class="form-grid">
+        @foreach(['holiday_overtime_hour_rate','foreign_overtime_hour_rate','foreign_holiday_overtime_hour_rate'] as $field)
+        @include('admin.field',['field'=>$field,'rule'=>'nullable|numeric','value'=>$settings[$field]])
+        @endforeach
+    </div>
+    <p class="hint">{{ __('erp.overtime_rates_help') }}</p>
+    <h2>{{ __('erp.official_holidays') }}</h2><p class="hint">{{ __('erp.holidays_help') }}</p>
+    @php($holidays = old('holidays', $settings['holidays']))
+    <div class="holiday-list" id="holiday-list">
+        @foreach($holidays as $index => $holiday)
+        @include('admin.hr.holiday', ['index' => $index, 'holiday' => $holiday])
+        @endforeach
+    </div>
+    <template id="holiday-template">@include('admin.hr.holiday', ['index' => '__INDEX__', 'holiday' => []])</template>
+    <button class="btn" type="button" data-add-line="holiday-template" data-target="holiday-list">+ {{ __('erp.add_holiday') }}</button>
+    <div class="work-days mt-4">
+        <input type="hidden" name="employee_holiday_punch" value="0">
+        <label><input type="checkbox" name="employee_holiday_punch" value="1" @checked(old('employee_holiday_punch', $settings['employee_holiday_punch']))> {{ __('erp.employee_holiday_punch') }}</label>
+    </div>
     <p class="hint">{{ __('erp.settings_history_help') }}</p>
     <div class="form-footer"><button class="btn primary">{{ __('erp.save') }}</button></div>
 </form>

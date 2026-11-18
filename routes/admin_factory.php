@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Admin\{FactoryDashboardController, MasterController, InvoiceController, StockController, PayrollController, AccessController, HrSettingsController, AdvanceController, EmployeePortalController, LeaveController};
+use App\Http\Controllers\Admin\{FactoryDashboardController, MasterController, InvoiceController, StockController, PayrollController, AccessController, HrSettingsController, AdvanceController, EmployeePortalController, LeaveController, VoucherController, StatementController};
 use App\Http\Middleware\AdminLocale;
 use Illuminate\Support\Facades\Route;
 
@@ -23,6 +23,12 @@ Route::middleware(AdminLocale::class)->prefix('admin')->name('admin.')->group(fu
         Route::get('invoice/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');
         Route::post('invoice/{invoice}/pay', [InvoiceController::class, 'pay'])->name('invoices.pay');
         Route::post('invoice/{invoice}/cancel', [InvoiceController::class, 'cancel'])->name('invoices.cancel');
+        Route::get('vouchers/{type}', [VoucherController::class, 'index'])->name('vouchers.index');
+        Route::get('vouchers/{type}/create', [VoucherController::class, 'create'])->name('vouchers.create');
+        Route::post('vouchers/{type}', [VoucherController::class, 'store'])->name('vouchers.store');
+        Route::get('voucher/{voucher}', [VoucherController::class, 'show'])->name('vouchers.show');
+        Route::post('voucher/{voucher}/cancel', [VoucherController::class, 'cancel'])->name('vouchers.cancel');
+        Route::get('statements/{kind}', [StatementController::class, 'show'])->name('statements');
         Route::get('stock', [StockController::class, 'index'])->name('stock');
         Route::post('stock', [StockController::class, 'adjust'])->name('stock.adjust');
         Route::get('payroll', [PayrollController::class, 'index'])->name('payroll.index');

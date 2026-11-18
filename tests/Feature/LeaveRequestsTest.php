@@ -67,7 +67,7 @@ class LeaveRequestsTest extends TestCase
     }
     private function employeeData(array $overrides=[]): array
     {
-        return array_replace(['code'=>$this->employee->code,'name_ar'=>'موظف','hire_date'=>'2026-01-01','monthly_salary'=>'528',
+        return array_replace(['code'=>$this->employee->code,'name_ar'=>'موظف','hire_date'=>'2026-01-01','monthly_salary'=>'528','worker_type'=>'local',
             'annual_leave_days'=>'14','shift_id'=>$this->shift->id,'username'=>'employee','active'=>1],$overrides);
     }
 

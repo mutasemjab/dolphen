@@ -33,10 +33,28 @@ class PayrollService
         $records = Attendance::where('employee_id', $employee->id)->whereBetween('date', [$first->toDateString(), $last->toDateString()])->get()->keyBy('date');
         $eligible = $present = $absent = $leave = $lateMinutes = $earlyMinutes = $overtimeMinutes = 0;
         $lateAmount = $earlyAmount = $absenceAmount = '0'; $asOf = null; $pendingShift = false; $departureMinutes = 0;
+        $holidays = HrSettings::holidayDates($policy); $rates = HrSettings::overtimeRates($policy, (string) ($employee->worker_type ?: 'local'));
+        $holidayDays = $holidayWorkedDays = $holidayMinutes = 0;
         for ($day = $first->copy(); $day->lte($last); $day->addDay()) {
             $date = $day->toDateString();
-            if ((!in_array($day->dayOfWeek, $policy['work_days']) && empty($approvedLeaves[$date])) || $date < $employee->hire_date) { continue; }
+            $workDay = in_array($day->dayOfWeek, $policy['work_days']) || !empty($approvedLeaves[$date]);
+            if ($date < $employee->hire_date) { continue; }
             $row = $records->get($date);
+            if (!$workDay || in_array($date, $holidays, true)) {
+                if ($workDay) {
+                    // An official holiday on a scheduled day is paid without attendance.
+                    [, $end] = $row?->scheduled_start ? [$row->scheduled_start, $row->scheduled_end] : $attendanceService->schedule($employee->shift, $date);
+                    if ($end->gt($now)) { $pendingShift = true; } else { $asOf = $date; $eligible++; $holidayDays++; }
+                }
+                // Every minute worked on a rest day or official holiday is holiday overtime.
+                if ($row && $row->status === 'present') {
+                    [$in, $out] = $this->worked($row, $date);
+                    if ($in && !$out && $in->diffInHours($now) < 24) { $pendingShift = true; continue; }
+                    D::check($in && $out && $out->gt($in), 'incomplete_attendance', ['date' => $date]);
+                    $holidayWorkedDays++; $holidayMinutes += $in->diffInMinutes($out);
+                }
+                continue;
+            }
             [$start, $end] = $row?->scheduled_start ? [$row->scheduled_start, $row->scheduled_end] : $attendanceService->schedule($employee->shift, $date);
             $approved = $approvedLeaves[$date] ?? [];
             if (!$row?->scheduled_start && $approved) {
@@ -71,8 +89,9 @@ class PayrollService
         $values = ['salary' => $this->money(D::mul($dailyRate, $eligible)), 'allowance' => $this->money(D::of($allowance)),
             'deduction' => $this->money(D::of($deduction)), 'absence_deduction' => $this->money($absenceAmount),
             'late_deduction' => $this->money($lateAmount), 'early_deduction' => $this->money($earlyAmount),
-            'overtime_pay' => $this->money(D::div(D::mul($policy['overtime_hour_rate'], $overtimeMinutes), 60))];
-        $beforeAdvances = D::sub(D::sum([$values['salary'], $values['allowance'], $values['overtime_pay']]),
+            'overtime_pay' => $this->money(D::div(D::mul($rates['regular'], $overtimeMinutes), 60)),
+            'holiday_overtime_pay' => $this->money(D::div(D::mul($rates['holiday'], $holidayMinutes), 60))];
+        $beforeAdvances = D::sub(D::sum([$values['salary'], $values['allowance'], $values['overtime_pay'], $values['holiday_overtime_pay']]),
             D::sum([$values['deduction'], $values['absence_deduction'], $values['late_deduction'], $values['early_deduction']]));
         D::check(D::cmp($beforeAdvances) >= 0, 'negative_salary');
         $remaining = $beforeAdvances; $allocations = [];
@@ -89,9 +108,22 @@ class PayrollService
         $values['details'] = ['scheduled_days' => $scheduledDays, 'eligible_days' => $eligible, 'present_days' => $present,
             'absent_days' => $absent, 'leave_days' => $leave, 'late_minutes' => $lateMinutes, 'early_minutes' => $earlyMinutes,
             'overtime_minutes' => $overtimeMinutes, 'daily_rate' => $dailyRate, 'monthly_salary' => $employee->monthly_salary,
-            'as_of' => $asOf, 'partial' => $last->gte($now) || $pendingShift, 'policy' => $policy];
+            'as_of' => $asOf, 'partial' => $last->gte($now) || $pendingShift, 'policy' => $policy,
+            'worker_type' => (string) ($employee->worker_type ?: 'local'), 'overtime_rate' => $rates['regular'], 'holiday_overtime_rate' => $rates['holiday'],
+            'holiday_days' => $holidayDays, 'holiday_worked_days' => $holidayWorkedDays, 'holiday_overtime_minutes' => $holidayMinutes];
         if ($approvedLeaves) { $values['details']['approved_departure_minutes'] = $departureMinutes; }
         return [$values, $allocations];
+    }
+
+    /** Check-in and check-out of a day-off record, including records saved before exact timestamps existed. */
+    private function worked($row, string $date): array
+    {
+        if ($row->check_in_at) { return [$row->check_in_at, $row->check_out_at]; }
+        if (!$row->check_in) { return [null, null]; }
+        $in = Carbon::parse($date.' '.$row->check_in, 'Asia/Amman');
+        $out = $row->check_out ? Carbon::parse($date.' '.$row->check_out, 'Asia/Amman') : null;
+        if ($out && $out->lte($in)) { $out->addDay(); }
+        return [$in, $out];
     }
 
     public function save(int $employeeId, string $month, string $allowance = '0', string $deduction = '0', ?string $notes = null): Payroll

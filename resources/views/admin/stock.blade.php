@@ -1,6 +1,11 @@
 @extends('admin.layouts.factory')
 @section('title', __('erp.stock'))
-@section('actions')<button type="button" class="btn" data-print>{{ __('erp.print') }}</button>
+@section('actions')
+@can('erp.inventory.manage')
+<a class="btn" href="{{ route('admin.vouchers.create','receipt_voucher') }}">+ {{ __('erp.new_receipt_voucher') }}</a>
+<a class="btn" href="{{ route('admin.vouchers.create','issue_voucher') }}">+ {{ __('erp.new_issue_voucher') }}</a>
+@endcan
+<button type="button" class="btn" data-print>{{ __('erp.print') }}</button>
 @endsection
 @section('content')
 <section class="panel">
@@ -46,7 +51,9 @@
     </tr></thead><tbody>
     @forelse($movements as $movement)
         <tr><td>{{ $movement->date }}</td><td>{{ $movement->product->label }}</td><td dir="ltr">{{ $movement->quantity }}</td><td>{{ __('erp.'.$movement->kind) }}</td>
-        <td>{{ $movement->invoice->number }}</td></tr>
+        <td>@if(in_array($movement->invoice->type, ['adjustment']))
+            {{ $movement->invoice->number }}
+        @else<a href="{{ $movement->invoice->showRoute() }}">{{ $movement->invoice->number }}</a>@endif</td></tr>
     @empty<tr><td colspan="5" class="empty">{{ __('erp.no_data') }}</td></tr>
     @endforelse
     </tbody></table></div>

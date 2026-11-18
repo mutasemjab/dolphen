@@ -12,8 +12,8 @@ class InvoiceController extends Controller
 {
     private function access(Request $request, string $type, string $action = 'view'): void
     {
-        abort_unless(isset(InvoiceService::TYPES[$type]), 404);
-        Context::authorize($request->user('admin'), InvoiceService::TYPES[$type].'.'.$action);
+        abort_unless(isset(InvoiceService::FORMS[$type]), 404);
+        Context::authorize($request->user('admin'), InvoiceService::FORMS[$type].'.'.$action);
     }
 
     public function index(Request $request, string $type)
@@ -22,17 +22,25 @@ class InvoiceController extends Controller
         $request->validate(['from' => 'nullable|date_format:Y-m-d', 'to' => 'nullable|date_format:Y-m-d|after_or_equal:from']);
         $query = Invoice::with('partner', 'warehouse')->where('type', $type)
             ->when($request->q, fn ($q, $term) => $q->where('number', 'like', '%'.$term.'%'))
+            ->when($request->partner_id, fn ($q, $id) => $q->where('partner_id', $id))
             ->when($request->from, fn ($q, $date) => $q->where('date', '>=', $date))->when($request->to, fn ($q, $date) => $q->where('date', '<=', $date));
-        $posted = (clone $query)->where('status', 'posted')->get();
+        $counted = (clone $query)->where('status', $type === 'proforma_invoice' ? 'open' : 'posted')->get();
         return view('admin.invoices.index', ['type' => $type, 'invoices' => $query->latest('id')->paginate(20)->withQueryString(),
-            'total' => D::sum($posted->pluck('total')), 'remaining' => D::sub(D::sum($posted->pluck('total')), D::sum($posted->pluck('paid')))]);
+            'partners' => $this->partners($type, false),
+            'total' => D::sum($counted->pluck('total')), 'remaining' => D::sub(D::sum($counted->pluck('total')), D::sum($counted->pluck('paid')))]);
     }
 
     public function create(Request $request, string $type)
     {
         $this->access($request, $type, 'manage');
-        return view('admin.invoices.form', ['type' => $type, 'partners' => Partner::where('active', true)->whereIn('kind', [$type === 'sales_invoice' ? 'customer' : 'supplier', 'both'])->get(),
-            'warehouses' => Warehouse::where('active', true)->get(), 'products' => Product::with('baseUnit')->where('active', true)->get()]);
+        $proforma = null;
+        if ($type === 'sales_invoice' && $request->filled('proforma')) {
+            $proforma = Invoice::with('lines')->where('type', 'proforma_invoice')->findOrFail($request->integer('proforma'));
+            if ($proforma->status !== 'open') { return redirect()->route('admin.invoices.show', $proforma)->withErrors(['document' => __('erp.proforma_not_open')]); }
+        }
+        return view('admin.invoices.form', ['type' => $type, 'proforma' => $proforma, 'partners' => $this->partners($type),
+            'warehouses' => Warehouse::where('active', true)->get(),
+            'products' => Product::with('baseUnit')->where('active', true)->when(InvoiceService::sells($type), fn ($q) => $q->where('item_type', '!=', 'raw'))->orderBy('name_ar')->get()]);
     }
 
     public function store(Request $request, string $type, InvoiceService $service)
@@ -44,8 +52,9 @@ class InvoiceController extends Controller
 
     public function show(Request $request, Invoice $invoice)
     {
+        if ($invoice->isVoucher()) { return redirect()->route('admin.vouchers.show', $invoice); }
         $this->access($request, $invoice->type);
-        return view('admin.invoices.show', ['invoice' => $invoice->load('lines.product', 'lines.unit', 'partner', 'warehouse')]);
+        return view('admin.invoices.show', ['invoice' => $invoice->load('lines.product', 'lines.unit', 'partner', 'warehouse', 'source', 'derived')]);
     }
 
     public function pay(Request $request, Invoice $invoice, InvoiceService $service)
@@ -62,5 +71,11 @@ class InvoiceController extends Controller
         $data = $request->validate(['reason' => 'required|string|max:1000']);
         $service->cancel($request->user('admin'), $invoice, $data['reason']);
         return back()->with('success', __('erp.cancelled'));
+    }
+
+    private function partners(string $type, bool $activeOnly = true)
+    {
+        return Partner::when($activeOnly, fn ($q) => $q->where('active', true))
+            ->whereIn('kind', [InvoiceService::sells($type) ? 'customer' : 'supplier', 'both'])->orderBy('name_ar')->get();
     }
 }

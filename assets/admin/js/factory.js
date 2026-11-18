@@ -49,14 +49,68 @@ document.addEventListener('DOMContentLoaded', () => {
     form.elements.start_date.addEventListener('change', sync);
     sync();
   });
+  // Searchable dropdowns (Select2). Selects inside <template> are enhanced when their row is added.
+  const $ = window.jQuery;
+  const setSelect = (select, value) => { select.value = value; if ($ && $.fn.select2 && select.classList.contains('select2-hidden-accessible')) $(select).trigger('change.select2'); };
+  const enhance = root => {
+    if (!$ || !$.fn.select2) return;
+    root.querySelectorAll('select:not([data-no-search]):not(.select2-hidden-accessible)').forEach(select => {
+      const empty = select.options.length && select.options[0].value === '';
+      $(select).select2({
+        width: '100%', dir: document.documentElement.dir || 'ltr', language: document.documentElement.lang === 'ar' ? 'ar' : 'en',
+        placeholder: empty ? { id: '', text: select.options[0].text } : undefined, allowClear: empty && !select.required,
+        dropdownParent: $(select.closest('dialog') || document.body),
+      });
+      // Select2 reports changes through jQuery only; forward them so native listeners keep working.
+      $(select).on('select2:select select2:clear', () => select.dispatchEvent(new Event('change', { bubbles: true })));
+    });
+  };
+  enhance(document);
+  const decimalText = value => (value || '0').includes('.') ? value.replace(/\.?0+$/, '') || '0' : value;
+  const recalc = form => {
+    const box = form?.querySelector('[data-invoice-totals]'); if (!box) return;
+    const places = Number(box.dataset.decimals || 3); const fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: places, maximumFractionDigits: places });
+    let subtotal = 0;
+    form.querySelectorAll('[data-line]').forEach(row => {
+      const line = (parseFloat(row.querySelector('[data-quantity]')?.value) || 0) * (parseFloat(row.querySelector('[data-unit-price]')?.value) || 0);
+      subtotal += line; const cell = row.querySelector('[data-line-total]'); if (cell) cell.textContent = fmt(line);
+    });
+    const discount = parseFloat(form.elements.discount?.value) || 0; const rate = parseFloat(form.elements.tax_rate?.value) || 0;
+    const tax = (subtotal - discount) * rate / 100;
+    box.querySelector('[data-total="subtotal"]').textContent = fmt(subtotal);
+    box.querySelector('[data-total="tax"]').textContent = fmt(tax);
+    box.querySelector('[data-total="total"]').textContent = fmt(subtotal - discount + tax);
+  };
+  document.querySelectorAll('[data-invoice-totals]').forEach(box => recalc(box.closest('form')));
+  document.addEventListener('input', event => { if (event.target.closest('form')?.querySelector('[data-invoice-totals]')) recalc(event.target.closest('form')); });
+  // Raw materials are not sold: hide and skip the selling price.
+  document.querySelectorAll('select[name="item_type"]').forEach(select => {
+    const price = select.form?.elements.selling_price; if (!price) return;
+    const sync = () => { const raw = select.value === 'raw'; price.closest('.field').hidden = raw; price.disabled = raw; price.required = !raw; };
+    select.addEventListener('change', sync); sync();
+  });
   document.querySelectorAll('[data-add-line]').forEach(button => button.addEventListener('click', () => {
     const template = document.getElementById(button.dataset.addLine);
-    document.getElementById(button.dataset.target).insertAdjacentHTML('beforeend', template.innerHTML.replaceAll('__INDEX__', String(nextIndex++)));
+    const target = document.getElementById(button.dataset.target);
+    target.insertAdjacentHTML('beforeend', template.innerHTML.replaceAll('__INDEX__', String(nextIndex++)));
+    enhance(target.lastElementChild);
+    recalc(target.closest('form'));
   }));
-  document.addEventListener('click', event => event.target.closest('[data-remove-line]')?.closest('[data-line]').remove());
+  document.addEventListener('click', event => {
+    const row = event.target.closest('[data-remove-line]')?.closest('[data-line]'); if (!row) return;
+    const form = row.closest('form'); row.remove(); recalc(form);
+  });
   document.addEventListener('change', event => {
     if (event.target.matches('[data-product-select]')) {
-      event.target.closest('[data-line]').querySelector('[data-unit-price]').value = event.target.selectedOptions[0]?.dataset.price || '0';
+      const option = event.target.selectedOptions[0]; const row = event.target.closest('[data-line]');
+      const price = row.querySelector('[data-unit-price]');
+      if (price) price.value = decimalText(option?.dataset.price || '0');
+      // Use the product's own warehouse when the document has none yet.
+      const warehouse = event.target.form?.elements.warehouse_id;
+      if (warehouse && !warehouse.value && option?.dataset.warehouse && warehouse.querySelector(`option[value="${option.dataset.warehouse}"]`)) setSelect(warehouse, option.dataset.warehouse);
+      recalc(event.target.form);
+    } else if (event.target.form?.querySelector('[data-invoice-totals]')) {
+      recalc(event.target.form);
     }
   });
   window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });

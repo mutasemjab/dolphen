@@ -10,4 +10,11 @@ class Invoice extends Record
     public function partner() { return $this->belongsTo(Partner::class); }
     public function warehouse() { return $this->belongsTo(Warehouse::class); }
     public function movements() { return $this->hasMany(StockMovement::class, 'document_id'); }
+    /** The invoice of an automatic voucher, or the pro forma of a converted sales invoice. */
+    public function source() { return $this->belongsTo(Invoice::class, 'source_id'); }
+    /** Vouchers posted for an invoice, or the sales invoice created from a pro forma. */
+    public function derived() { return $this->hasMany(Invoice::class, 'source_id'); }
+
+    public function isVoucher(): bool { return isset(\App\Services\Admin\InvoiceService::VOUCHERS[$this->type]); }
+    public function showRoute(): string { return $this->isVoucher() ? route('admin.vouchers.show', $this) : route('admin.invoices.show', $this); }
 }

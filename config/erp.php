@@ -5,9 +5,11 @@ use App\Models\Admin as M;
 return [
     'masters' => [
         'products' => ['model' => M\Product::class, 'module' => 'products', 'fields' => [
-            'name_ar' => 'required|string|max:200', 'classification_id' => 'nullable|integer|exists:erp_classifications,id',
+            'name_ar' => 'required|string|max:200', 'item_type' => 'required|in:raw,finished',
+            'classification_id' => 'nullable|integer|exists:erp_classifications,id', 'warehouse_id' => 'required|integer|exists:erp_warehouses,id',
             'base_unit_id' => 'required|exists:erp_units,id', 'cost' => 'required|numeric|min:0',
-            'selling_price' => 'required|numeric|min:0', 'minimum_stock' => 'required|numeric|min:0', 'active' => 'required|boolean',
+            // Raw materials are not sold, so they carry no selling price.
+            'selling_price' => 'required_if:item_type,finished|nullable|numeric|min:0', 'minimum_stock' => 'required|numeric|min:0', 'active' => 'required|boolean',
         ]],
         'units' => ['model' => M\Unit::class, 'module' => 'products'],
         'warehouses' => ['model' => M\Warehouse::class, 'module' => 'inventory'],
@@ -27,7 +29,7 @@ return [
         ]],
         'employees' => ['model' => M\Employee::class, 'module' => 'hr', 'extra' => [
             'phone' => 'nullable|string|max:100', 'job_title' => 'nullable|string|max:200',
-            'hire_date' => 'required|date_format:Y-m-d', 'monthly_salary' => 'required|numeric|min:0',
+            'hire_date' => 'required|date_format:Y-m-d', 'monthly_salary' => 'required|numeric|min:0', 'worker_type' => 'required|in:local,foreign',
             'annual_leave_days' => 'sometimes|required|numeric|min:0|max:366',
             'shift_id' => 'required|integer|exists:erp_work_shifts,id', 'username' => 'nullable|alpha_dash|max:100|unique:erp_employees,username',
             'password' => 'nullable|string|min:6|max:200|confirmed', 'password_confirmation' => 'nullable|string|max:200',

@@ -45,9 +45,10 @@ class LeaveService
             D::check($first->gte($today) && $first->toDateString() >= $employee->hire_date && $last->gte($first), 'invalid_leave_dates');
             D::check($first->year === $last->year && $first->year <= $today->year + 1, 'leave_same_year');
             D::check($data['type'] !== 'departure' || $first->eq($last), 'departure_single_day');
-            $days = []; $attendanceService = app(AttendanceService::class); $workDays = HrSettings::get()['work_days'];
+            $days = []; $attendanceService = app(AttendanceService::class); $policy = HrSettings::get(); $workDays = $policy['work_days']; $holidays = HrSettings::holidayDates($policy);
             for ($date = $first->copy(); $date->lte($last); $date->addDay()) {
-                if (!in_array($date->dayOfWeek, $workDays)) { continue; }
+                // Rest days and official holidays are not charged from the leave balance.
+                if (!in_array($date->dayOfWeek, $workDays) || in_array($date->toDateString(), $holidays, true)) { continue; }
                 $day = $date->toDateString(); $attendanceService->assertUnlocked($employee->id, $day);
                 $attendance = Attendance::where('employee_id', $employee->id)->where('date', $day)->first();
                 [$start, $end] = $attendance?->scheduled_start ? [$attendance->scheduled_start, $attendance->scheduled_end] : $attendanceService->schedule($employee->shift, $day);

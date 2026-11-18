@@ -6,7 +6,11 @@
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>@yield('title') · {{ $companyName }}</title>
     <link rel="stylesheet" href="{{ asset('assets/admin/vendor/bootstrap'.($locale === 'ar' ? '.rtl' : '').'.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('assets/admin/vendor/select2/select2.min.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/admin/css/factory.css') }}">
+    <script defer src="{{ asset('assets/admin/vendor/jquery.min.js') }}"></script>
+    <script defer src="{{ asset('assets/admin/vendor/select2/select2.min.js') }}"></script>
+    <script defer src="{{ asset('assets/admin/vendor/select2/ar.js') }}"></script>
     <script defer src="{{ asset('assets/admin/js/factory.js') }}"></script>
 </head>
 <body>

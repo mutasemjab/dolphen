@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\MasterRequest;
-use App\Models\Admin\{Classification, InvoiceLine, StockMovement, WorkShift};
+use App\Models\Admin\{Classification, InvoiceLine, StockMovement, Warehouse, WorkShift};
 use App\Services\Admin\AttendanceService;
 use App\Services\Admin\LeaveService;
 use App\Services\Admin\Context;
@@ -36,6 +36,10 @@ class MasterController extends Controller
         }
         if ($resource === 'attendance') { $query->when($request->date, fn ($q, $d) => $q->where('date', $d)); }
         if (in_array($resource, ['products', 'customers', 'suppliers'])) { $query->when($request->classification_id, fn ($q, $id) => $q->where('classification_id', $id)); }
+        if ($resource === 'products') {
+            $query->when($request->warehouse_id, fn ($q, $id) => $q->where('warehouse_id', $id))
+                ->when(in_array($request->item_type, ['raw', 'finished'], true) ? $request->item_type : null, fn ($q, $type) => $q->where('item_type', $type));
+        }
         return view('admin.masters.index', ['resource' => $resource, 'definition' => $definition, 'records' => $query->latest('id')->paginate(20)->withQueryString(), 'options' => $this->options(array_keys($definition['fields']), $resource)]);
     }
 
@@ -50,6 +54,8 @@ class MasterController extends Controller
     public function save(MasterRequest $request, string $resource, ?int $record = null)
     {
         $definition = $this->definition($resource); $data = $request->validated();
+        // A raw material has no selling price; store zero instead of a stale value.
+        if ($resource === 'products' && $data['item_type'] === 'raw') { $data['selling_price'] = '0'; }
         DB::transaction(function () use ($definition, $data, $resource, $record) {
             Context::lock();
             $model = $record ? $definition['model']::where($definition['scope'] ?? [])->lockForUpdate()->findOrFail($record) : new $definition['model'];
@@ -69,7 +75,8 @@ class MasterController extends Controller
             }
             if ($resource === 'products') {
                 D::check(!$record || (!StockMovement::where('product_id', $record)->exists() && !InvoiceLine::where('product_id', $record)->exists()) || (int) $data['base_unit_id'] === $model->base_unit_id, 'immutable_product');
-                $data['purchase_unit_id'] = $data['sales_unit_id'] = $data['base_unit_id']; $data['item_type'] = 'finished';
+                D::check((int) $data['warehouse_id'] === (int) $model->warehouse_id || Warehouse::whereKey($data['warehouse_id'])->where('active', true)->exists(), 'inactive_record');
+                $data['purchase_unit_id'] = $data['sales_unit_id'] = $data['base_unit_id'];
             }
             if ($resource === 'attendance') {
                 D::check(!DB::table('erp_attendance')->where('employee_id', $data['employee_id'])->where('date', $data['date'])->when($record, fn ($q) => $q->where('id', '!=', $record))->exists(), 'duplicate_record');

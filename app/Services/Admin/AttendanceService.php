@@ -68,7 +68,9 @@ class AttendanceService
             // A shift shortly after midnight may be checked into the previous evening.
             [$nextStart, $nextEnd] = $this->schedule($employee->shift, $now->copy()->addDay()->toDateString());
             if ($now->gte($nextStart->copy()->subHours(2)) && $now->lt($nextStart)) { $start = $nextStart; $end = $nextEnd; $date = $start->toDateString(); }
-            D::check($date >= $employee->hire_date && in_array($start->dayOfWeek, HrSettings::get()['work_days']), 'not_work_day');
+            // Work on a weekly rest day or official holiday is holiday overtime; employees may record it only when allowed.
+            $policy = HrSettings::get();
+            D::check($date >= $employee->hire_date && (!HrSettings::isDayOff($date, $policy) || $policy['employee_holiday_punch']), 'not_work_day');
             D::check($now->gte($start->copy()->subHours(2)) && $now->lt($end), 'outside_shift_window');
             $this->assertUnlocked($employee->id, $date);
             $approved = app(LeaveService::class)->approvedDays($employee->id, $date, $date)[$date] ?? [];
@@ -88,7 +90,8 @@ class AttendanceService
         $employee = Employee::with('shift')->findOrFail($data['employee_id']);
         D::check((bool) $employee->shift, 'shift_required');
         D::check($data['date'] >= $employee->hire_date && $data['date'] <= now('Asia/Amman')->toDateString(), 'invalid_attendance_date');
-        D::check(in_array(Carbon::parse($data['date'], 'Asia/Amman')->dayOfWeek, HrSettings::get()['work_days']), 'not_work_day');
+        // On a rest day or official holiday only actual work is recorded; it is paid as holiday overtime.
+        D::check(!HrSettings::isDayOff($data['date']) || $data['status'] === 'present', 'holiday_present_only');
         $approved = app(LeaveService::class)->approvedDays($employee->id, $data['date'], $data['date'])[$data['date']] ?? [];
         D::check(!collect($approved)->contains('type', 'annual'), 'approved_leave_day');
         [$start, $end] = $record->exists && $record->scheduled_start && $record->employee_id == $employee->id && $record->date === $data['date']

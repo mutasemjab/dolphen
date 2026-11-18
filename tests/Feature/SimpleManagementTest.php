@@ -48,7 +48,7 @@ class SimpleManagementTest extends TestCase
     private function saveInvoice(string $type, string $quantity = '10', string $price = '2', array $overrides = []): Invoice
     {
         $this->post(route('admin.invoices.store', $type), array_replace($this->data($type, $quantity, $price), $overrides))->assertRedirect()->assertSessionHasNoErrors();
-        return Invoice::latest('id')->firstOrFail();
+        return Invoice::where('type', $type)->latest('id')->firstOrFail();
     }
 
     private function stock(): string { return app(InvoiceService::class)->quantity($this->product->id, $this->warehouse->id); }
@@ -58,7 +58,7 @@ class SimpleManagementTest extends TestCase
     {
         $data = $this->data('purchase_invoice', '10.125', '2');
         for ($i = 0; $i < 2; $i++) { $this->post(route('admin.invoices.store', 'purchase_invoice'), $data)->assertSessionHasNoErrors(); }
-        $this->assertSame(1, Invoice::count()); $this->decimal('10.125', $this->stock());
+        $this->assertSame(1, Invoice::whereIn('type', array_keys(InvoiceService::TYPES))->count()); $this->decimal('10.125', $this->stock());
         $sale = $this->saveInvoice('sales_invoice', '2.125', '3');
         $this->assertSame('posted', $sale->status); $this->decimal('6.375', $sale->total); $this->decimal('8', $this->stock());
         $this->assertSame(2, StockMovement::count());
@@ -69,7 +69,7 @@ class SimpleManagementTest extends TestCase
         $this->saveInvoice('purchase_invoice', '5');
         $data = $this->data('sales_invoice', '3'); $data['lines'][] = $data['lines'][0];
         $this->post(route('admin.invoices.store', 'sales_invoice'), $data)->assertSessionHasErrors();
-        $this->assertSame(1, Invoice::count()); $this->assertSame(1, StockMovement::count()); $this->decimal('5', $this->stock());
+        $this->assertSame(1, Invoice::whereIn('type', array_keys(InvoiceService::TYPES))->count()); $this->assertSame(1, StockMovement::count()); $this->decimal('5', $this->stock());
     }
 
     public function test_invoice_discount_tax_and_paid_balance_use_decimal_calculations(): void
@@ -94,7 +94,7 @@ class SimpleManagementTest extends TestCase
         $this->saveInvoice('purchase_invoice'); $sale = $this->saveInvoice('sales_invoice', '3');
         for ($i = 0; $i < 2; $i++) { $this->post(route('admin.invoices.cancel', $sale), ['reason' => 'Incorrect invoice'])->assertSessionHasNoErrors(); }
         $this->decimal('10', $this->stock()); $this->assertSame('cancelled', $sale->fresh()->status);
-        $this->assertSame(3, StockMovement::count()); $this->assertSame(2, Invoice::count());
+        $this->assertSame(3, StockMovement::count()); $this->assertSame(2, Invoice::whereIn('type', array_keys(InvoiceService::TYPES))->count());
         $this->post(route('admin.invoices.pay', $sale), ['amount' => '1', 'request_id' => (string) Str::uuid()])->assertSessionHasErrors();
     }
 
@@ -147,7 +147,7 @@ class SimpleManagementTest extends TestCase
     {
         $this->travelTo(\Carbon\Carbon::parse('2026-10-19 18:00:00'));
         $shift = WorkShift::create(['name_ar'=>'صباحي','name_en'=>'Day','starts_at'=>'08:00','ends_at'=>'16:00']);
-        $employeeData = ['code' => 'E1', 'name_ar' => 'موظف', 'hire_date' => '2026-01-01', 'monthly_salary' => '400', 'active' => '1', 'shift_id'=>$shift->id];
+        $employeeData = ['code' => 'E1', 'name_ar' => 'موظف', 'hire_date' => '2026-01-01', 'monthly_salary' => '400', 'worker_type' => 'local', 'active' => '1', 'shift_id'=>$shift->id];
         $this->post(route('admin.masters.store', 'employees'), $employeeData)->assertSessionHasNoErrors();
         $employee = Employee::firstOrFail(); $this->decimal('400', $employee->monthly_salary);
         $data = ['employee_id' => $employee->id, 'date' => '2026-10-19', 'status' => 'present', 'check_in' => '08:00', 'check_out' => '16:00'];

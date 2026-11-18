@@ -24,9 +24,18 @@ class HrSettingsController extends Controller
             'radius_meters' => 'required|integer|min:10|max:5000', 'work_days' => 'required|array|min:1|max:7',
             'work_days.*' => 'required|integer|between:0,6|distinct', 'grace_minutes' => 'required|integer|min:0|max:120',
             'overtime_hour_rate' => 'required|numeric|min:0', 'late_hour_rate' => 'required|numeric|min:0',
+            'holiday_overtime_hour_rate' => 'nullable|numeric|min:0', 'foreign_overtime_hour_rate' => 'nullable|numeric|min:0',
+            'foreign_holiday_overtime_hour_rate' => 'nullable|numeric|min:0', 'employee_holiday_punch' => 'nullable|boolean',
+            'holidays' => 'nullable|array|max:200', 'holidays.*.date' => 'required|date_format:Y-m-d|distinct', 'holidays.*.name' => 'nullable|string|max:200',
         ]);
         $data['work_days'] = array_map('intval', $data['work_days']); sort($data['work_days']);
         foreach (['overtime_hour_rate', 'late_hour_rate'] as $field) { $data[$field] = D::of($data[$field]); }
+        foreach (['holiday_overtime_hour_rate', 'foreign_overtime_hour_rate', 'foreign_holiday_overtime_hour_rate'] as $field) {
+            $data[$field] = isset($data[$field]) ? D::of((string) $data[$field]) : '';
+        }
+        $data['employee_holiday_punch'] = (bool) ($data['employee_holiday_punch'] ?? false);
+        $data['holidays'] = collect($data['holidays'] ?? [])->map(fn ($h) => ['date' => $h['date'], 'name' => (string) ($h['name'] ?? '')])
+            ->sortBy('date')->values()->all();
         DB::transaction(function () use ($data) { Context::lock(); HrSettings::save($data); }, 3);
         return back()->with('success', __('erp.saved'));
     }
