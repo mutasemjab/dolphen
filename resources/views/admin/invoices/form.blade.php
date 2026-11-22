@@ -16,10 +16,12 @@
         @include('admin.field',['field'=>'date','rule'=>'required|date_format:Y-m-d','value'=>now()->toDateString()])
         @include('admin.field',['field'=>'partner_id','rule'=>'required','value'=>$proforma?->partner_id,'choices'=>$partners->mapWithKeys(fn($p)=>[$p->id=>$p->label])->all()])
         @include('admin.field',['field'=>'warehouse_id','rule'=>'required','value'=>$proforma?->warehouse_id,'choices'=>$warehouses->mapWithKeys(fn($w)=>[$w->id=>$w->label])->all()])
+        @include('admin.currency-fields',['currencyValue'=>$proforma?->currency,'rateValue'=>$proforma && $proforma->currency !== \App\Models\Admin\Currency::base() ? $proforma->exchange_rate : null])
         @if($type === 'proforma_invoice')
         @include('admin.field',['field'=>'valid_until','rule'=>'nullable|date_format:Y-m-d'])
         @endif
     </div>
+    <p class="hint">{{ __('erp.currency_price_help', ['base' => \App\Models\Admin\Currency::base()]) }}</p>
     <div class="table-wrap line-editor"><table><thead><tr>
         @foreach(['product_id','quantity','unit_price','line_total','actions'] as $field)<th>{{ __('erp.'.$field) }}</th>
         @endforeach
@@ -37,7 +39,7 @@
         @include('admin.field',['field'=>'paid','rule'=>'required|numeric','value'=>'0'])
         @endif
     </div>
-    <div class="document-totals" data-invoice-totals data-decimals="{{ (int) \App\Services\Admin\Context::setting('currency_decimals', '3') }}">
+    <div class="document-totals" data-invoice-totals data-decimals="{{ \App\Models\Admin\Currency::decimalsFor(old('currency', $proforma?->currency)) }}">
         <div><span>{{ __('erp.subtotal') }}</span><strong data-total="subtotal">0</strong></div>
         <div><span>{{ __('erp.tax_total') }}</span><strong data-total="tax">0</strong></div>
         <div><span>{{ __('erp.total') }}</span><strong data-total="total">0</strong></div>

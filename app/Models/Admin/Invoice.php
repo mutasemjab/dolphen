@@ -5,7 +5,7 @@ namespace App\Models\Admin;
 class Invoice extends Record
 {
     protected $table = 'erp_documents';
-    protected $casts = ['date' => \App\Support\Admin\CalendarDate::class, 'metadata' => 'array', 'subtotal' => 'decimal:6', 'tax_total' => 'decimal:6', 'total' => 'decimal:6', 'paid' => 'decimal:6'];
+    protected $casts = ['date' => \App\Support\Admin\CalendarDate::class, 'metadata' => 'array', 'subtotal' => 'decimal:6', 'tax_total' => 'decimal:6', 'total' => 'decimal:6', 'paid' => 'decimal:6', 'exchange_rate' => 'decimal:6'];
     public function lines() { return $this->hasMany(InvoiceLine::class, 'document_id'); }
     public function partner() { return $this->belongsTo(Partner::class); }
     public function warehouse() { return $this->belongsTo(Warehouse::class); }
@@ -16,5 +16,12 @@ class Invoice extends Record
     public function derived() { return $this->hasMany(Invoice::class, 'source_id'); }
 
     public function isVoucher(): bool { return isset(\App\Services\Admin\InvoiceService::VOUCHERS[$this->type]); }
-    public function showRoute(): string { return $this->isVoucher() ? route('admin.vouchers.show', $this) : route('admin.invoices.show', $this); }
+    public function showRoute(): string
+    {
+        if ($this->type === \App\Services\Admin\InvoiceService::RECEIPT) { return route('admin.receipts.show', $this); }
+        return $this->isVoucher() ? route('admin.vouchers.show', $this) : route('admin.invoices.show', $this);
+    }
+
+    /** Amount converted to the base currency at the document's rate. */
+    public function base(string $amount): string { return \App\Support\Admin\Decimal::mul($amount, $this->exchange_rate ?: '1'); }
 }

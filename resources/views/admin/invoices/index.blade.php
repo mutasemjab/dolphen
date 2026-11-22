@@ -17,8 +17,12 @@
     <label>{{ __('erp.from') }}<input type="date" name="from" value="{{ request('from') }}"></label>
     <label>{{ __('erp.to') }}<input type="date" name="to" value="{{ request('to') }}"></label><button class="btn">{{ __('erp.filter') }}</button>
 </form>
-<div class="summary-grid"><div>{{ __($proformaList ? 'erp.open_proformas_total' : 'erp.total') }} <strong>{{ \App\Support\Admin\Format::money($total) }}</strong></div>
-@unless($proformaList)<div>{{ __('erp.remaining') }} <strong>{{ \App\Support\Admin\Format::money($remaining) }}</strong></div>@endunless
+<div class="summary-grid">
+@forelse($totals as $code => $sum)
+<div>{{ __($proformaList ? 'erp.open_proformas_total' : 'erp.total') }} ({{ $code }}) <strong>{{ \App\Support\Admin\Format::money($sum['total'], $code) }}</strong></div>
+@unless($proformaList)<div>{{ __('erp.remaining') }} ({{ $code }}) <strong>{{ \App\Support\Admin\Format::money($sum['remaining'], $code) }}</strong></div>@endunless
+@empty<div>{{ __('erp.total') }} <strong>0</strong></div>
+@endforelse
 </div>
 @php($columns = $proformaList ? ['number','date','partner_id','warehouse_id','total','valid_until','status'] : ['number','date','partner_id','warehouse_id','total','paid','remaining','status'])
 <div class="table-wrap"><table><thead><tr>
@@ -27,11 +31,11 @@
 </tr></thead><tbody>
 @forelse($invoices as $invoice)
 <tr><td><a href="{{ route('admin.invoices.show',$invoice) }}">{{ $invoice->number }}</a></td><td>{{ $invoice->date->format('Y-m-d') }}</td><td>{{ $invoice->partner?->label }}</td><td>{{ $invoice->warehouse?->label }}</td>
-<td>{{ \App\Support\Admin\Format::money($invoice->total) }}</td>
+<td>{{ \App\Support\Admin\Format::money($invoice->total, $invoice->currency) }} {{ $invoice->currency }}</td>
 @if($proformaList)
 <td>{{ $invoice->metadata['valid_until'] ?? '—' }}</td>
 @else
-<td>{{ \App\Support\Admin\Format::money($invoice->paid) }}</td><td>{{ $invoice->status === 'cancelled' ? '—' : \App\Support\Admin\Format::money(\App\Support\Admin\Decimal::sub($invoice->total,$invoice->paid)) }}</td>
+<td>{{ \App\Support\Admin\Format::money($invoice->paid, $invoice->currency) }}</td><td>{{ $invoice->status === 'cancelled' ? '—' : \App\Support\Admin\Format::money(\App\Support\Admin\Decimal::sub($invoice->total,$invoice->paid), $invoice->currency) }}</td>
 @endif
 <td><span class="badge {{ $invoice->status }}">{{ __('erp.'.$invoice->status) }}</span></td></tr>
 @empty<tr><td class="empty" colspan="{{ count($columns) }}">{{ __('erp.no_invoices') }}</td></tr>

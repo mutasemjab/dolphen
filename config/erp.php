@@ -21,6 +21,11 @@ return [
             'name_ar' => 'required|string|max:200', 'classification_id' => 'nullable|integer|exists:erp_classifications,id',
             'phone' => 'nullable|string|max:100', 'address' => 'nullable|string|max:2000', 'active' => 'required|boolean', 'notes' => 'nullable|string|max:2000',
         ]],
+        'currencies' => ['model' => M\Currency::class, 'module' => 'sales', 'fields' => [
+            'code' => 'required|string|regex:/^[A-Za-z]{3}$/|unique:erp_currencies,code', 'name_ar' => 'required|string|max:200',
+            'symbol' => 'nullable|string|max:10', 'decimals' => 'required|integer|min:0|max:6',
+            'exchange_rate' => 'required|numeric|gt:0', 'active' => 'required|boolean',
+        ]],
         'product_categories' => ['model' => M\Classification::class, 'module' => 'products', 'scope' => ['kind' => 'product'], 'fields' => ['name_ar' => 'required|string|max:200', 'active' => 'required|boolean']],
         'customer_categories' => ['model' => M\Classification::class, 'module' => 'sales', 'scope' => ['kind' => 'customer'], 'fields' => ['name_ar' => 'required|string|max:200', 'active' => 'required|boolean']],
         'supplier_categories' => ['model' => M\Classification::class, 'module' => 'purchasing', 'scope' => ['kind' => 'supplier'], 'fields' => ['name_ar' => 'required|string|max:200', 'active' => 'required|boolean']],

@@ -29,7 +29,7 @@ class ErpSeeder extends Seeder
         foreach (['piece' => ['قطعة', 'Piece'], 'kg' => ['كيلو', 'Kilogram'], 'roll' => ['رول', 'Roll']] as $code => [$ar, $en]) {
             Unit::firstOrCreate(['code' => $code], ['name_ar' => $ar, 'name_en' => $en]);
         }
-        foreach (['posting_mutex' => '1', 'company_name_ar' => 'مصنع الدولفين', 'company_name_en' => 'Al Dolphin Factory', 'currency' => 'JOD', 'currency_decimals' => '3'] as $key => $value) {
+        foreach (['posting_mutex' => '1', 'company_name_ar' => 'مصنع عايده الحواجرة للبلاستيك', 'company_name_en' => 'Aida Al-Hawajreh Plastic Factory', 'tax_number' => '100335976', 'currency' => 'JOD', 'currency_decimals' => '3'] as $key => $value) {
             DB::table('erp_settings')->insertOrIgnore(compact('key', 'value'));
         }
         app(PermissionRegistrar::class)->forgetCachedPermissions();

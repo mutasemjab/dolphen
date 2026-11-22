@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\MasterRequest;
-use App\Models\Admin\{Classification, InvoiceLine, StockMovement, Warehouse, WorkShift};
+use App\Models\Admin\{Classification, Currency, Invoice, InvoiceLine, StockMovement, Warehouse, WorkShift};
 use App\Services\Admin\AttendanceService;
 use App\Services\Admin\LeaveService;
 use App\Services\Admin\Context;
@@ -77,6 +77,16 @@ class MasterController extends Controller
                 D::check(!$record || (!StockMovement::where('product_id', $record)->exists() && !InvoiceLine::where('product_id', $record)->exists()) || (int) $data['base_unit_id'] === $model->base_unit_id, 'immutable_product');
                 D::check((int) $data['warehouse_id'] === (int) $model->warehouse_id || Warehouse::whereKey($data['warehouse_id'])->where('active', true)->exists(), 'inactive_record');
                 $data['purchase_unit_id'] = $data['sales_unit_id'] = $data['base_unit_id'];
+            }
+            if ($resource === 'currencies') {
+                $data['code'] = strtoupper($data['code']);
+                D::check(!Currency::whereRaw('UPPER(code) = ?', [$data['code']])->when($record, fn ($q) => $q->whereKeyNot($record))->exists(), 'duplicate_record');
+                // Documents keep their currency code, so a used code is fixed.
+                D::check(!$record || $data['code'] === $model->code || !Invoice::where('currency', $model->code)->exists(), 'currency_in_use');
+                if ($data['code'] === Currency::base() || ($record && $model->code === Currency::base())) {
+                    D::check($data['code'] === Currency::base() && (bool) $data['active'], 'base_currency_fixed');
+                    $data['exchange_rate'] = D::of('1');
+                }
             }
             if ($resource === 'attendance') {
                 D::check(!DB::table('erp_attendance')->where('employee_id', $data['employee_id'])->where('date', $data['date'])->when($record, fn ($q) => $q->where('id', '!=', $record))->exists(), 'duplicate_record');

@@ -3,7 +3,7 @@
 namespace App\Services\Admin;
 
 use App\Models\Admin;
-use App\Models\Admin\{Invoice, Product, Partner, StockMovement, Warehouse};
+use App\Models\Admin\{Currency, Invoice, Product, Partner, StockMovement, Warehouse};
 use App\Support\Admin\Decimal as D;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -18,6 +18,10 @@ class InvoiceService
     public const VOUCHERS = ['receipt_voucher' => 1, 'issue_voucher' => -1];
     /** The voucher an invoice posts automatically. */
     public const VOUCHER_FOR = ['purchase_invoice' => 'receipt_voucher', 'sales_invoice' => 'issue_voucher'];
+
+    /** Customer receipt (سند قبض): money received, applied to open sales invoices. */
+    public const RECEIPT = 'cash_receipt';
+    public const PAYMENT_METHODS = ['cash', 'cheque', 'bank_transfer'];
 
     public static function sells(string $type): bool { return in_array($type, ['sales_invoice', 'proforma_invoice'], true); }
 
@@ -37,6 +41,7 @@ class InvoiceService
             'request_id' => 'required|uuid', 'notes' => 'nullable|string|max:2000',
             'valid_until' => 'nullable|date_format:Y-m-d|after_or_equal:date',
             'proforma_id' => 'nullable|integer|exists:erp_documents,id',
+            'currency' => 'nullable|string|size:3', 'exchange_rate' => 'nullable|numeric|gt:0',
             'lines' => 'required|array|min:1|max:100', 'lines.*.product_id' => 'required|exists:erp_products,id',
             'lines.*.quantity' => 'required|numeric|gt:0', 'lines.*.unit_price' => 'required|numeric|min:0',
         ])->validate();
@@ -116,7 +121,75 @@ class InvoiceService
             $vouchers = Invoice::where('source_id', $invoice->id)->whereIn('type', array_keys(self::VOUCHERS))->lockForUpdate()->get();
             $this->reverse($invoice->id, ...$vouchers->pluck('id')->map('intval')->all());
             $vouchers->each(fn ($voucher) => $voucher->update(['status' => 'cancelled', 'metadata' => ($voucher->metadata ?? []) + ['cancel_reason' => $reason, 'cancelled_on' => now()->toDateString()]]));
-            $invoice->update(['status' => 'cancelled', 'metadata' => ($invoice->metadata ?? []) + ['cancel_reason' => $reason, 'cancelled_on' => now()->toDateString()]]);
+            // Money from receipts stays with the customer as credit instead of being treated as refunded.
+            $metadata = $invoice->metadata ?? []; $paid = (string) $invoice->paid;
+            foreach ($metadata['payments'] ?? [] as $key => $payment) {
+                if (empty($payment['receipt_id'])) { continue; }
+                $this->release($invoice, $payment);
+                $paid = D::sub($paid, $payment['amount']); unset($metadata['payments'][$key]);
+            }
+            $invoice->update(['status' => 'cancelled', 'paid' => $paid, 'metadata' => $metadata + ['cancel_reason' => $reason, 'cancelled_on' => now()->toDateString()]]);
+        }, 3);
+    }
+
+    /** A customer receipt (سند قبض). Applied to open invoices in its currency; any excess stays as credit. */
+    public function saveReceipt(Admin $actor, array $data): Invoice
+    {
+        Context::authorize($actor, 'sales.manage');
+        Validator::make($data, [
+            'date' => 'required|date_format:Y-m-d|before_or_equal:today', 'partner_id' => 'required|exists:erp_partners,id',
+            'currency' => 'nullable|string|size:3', 'exchange_rate' => 'nullable|numeric|gt:0', 'amount' => 'required|numeric|gt:0',
+            'payment_method' => 'required|in:'.implode(',', self::PAYMENT_METHODS),
+            'cheque_number' => 'nullable|required_if:payment_method,cheque|string|max:100', 'cheque_date' => 'nullable|required_if:payment_method,cheque|date_format:Y-m-d',
+            'bank_name' => 'nullable|string|max:200', 'invoice_id' => 'nullable|integer', 'request_id' => 'required|uuid', 'notes' => 'nullable|string|max:2000',
+        ])->validate();
+        return DB::transaction(function () use ($actor, $data) {
+            Context::lock();
+            if ($existing = $this->repeat($actor, self::RECEIPT, $data['request_id'])) { return $existing; }
+            $partner = Partner::findOrFail($data['partner_id']);
+            D::check($partner->active && in_array($partner->kind, ['customer', 'both']), 'partner_required');
+            $amount = D::of((string) $data['amount']); D::check(D::cmp($amount) > 0, 'positive_quantity');
+            $method = $data['payment_method'];
+            $receipt = $this->header($actor, self::RECEIPT, array_replace($data, ['warehouse_id' => null]), 'posted', ['request_id' => $data['request_id'], 'payment_method' => $method]
+                + ($method === 'cash' ? [] : array_filter(['cheque_number' => $data['cheque_number'] ?? null, 'cheque_date' => $method === 'cheque' ? ($data['cheque_date'] ?? null) : null, 'bank_name' => $data['bank_name'] ?? null])));
+            $receipt->update(['subtotal' => $amount, 'total' => $amount, 'paid' => '0']);
+            $this->recordAllocations($receipt, $this->allocate($receipt, $amount, !empty($data['invoice_id']) ? (int) $data['invoice_id'] : null));
+            return $receipt->fresh();
+        }, 3);
+    }
+
+    /** Applies a receipt's unallocated credit to invoices issued after it. */
+    public function applyReceipt(Admin $actor, Invoice $receipt): void
+    {
+        abort_unless($receipt->type === self::RECEIPT, 404);
+        Context::authorize($actor, 'sales.manage');
+        DB::transaction(function () use ($receipt) {
+            Context::lock(); $receipt = Invoice::lockForUpdate()->findOrFail($receipt->id);
+            D::check($receipt->status === 'posted', 'invalid_status');
+            $credit = D::sub($receipt->total, $receipt->paid);
+            if (D::cmp($credit) <= 0) { return; }
+            $this->recordAllocations($receipt, $this->allocate($receipt, $credit));
+        }, 3);
+    }
+
+    public function cancelReceipt(Admin $actor, Invoice $receipt, string $reason): void
+    {
+        abort_unless($receipt->type === self::RECEIPT, 404);
+        Context::authorize($actor, 'sales.manage');
+        D::check(trim($reason) !== '', 'reason_required');
+        DB::transaction(function () use ($receipt, $reason) {
+            Context::lock(); $receipt = Invoice::lockForUpdate()->findOrFail($receipt->id);
+            if ($receipt->status === 'cancelled') { return; }
+            D::check($receipt->status === 'posted', 'invalid_status');
+            $key = 'receipt:'.$receipt->id;
+            foreach ($receipt->metadata['allocations'] ?? [] as $allocation) {
+                $invoice = Invoice::lockForUpdate()->find($allocation['invoice_id']);
+                $payment = $invoice?->metadata['payments'][$key] ?? null;
+                if (!$payment) { continue; }
+                $metadata = $invoice->metadata; unset($metadata['payments'][$key]);
+                $invoice->update(['paid' => D::sub($invoice->paid, $payment['amount']), 'metadata' => $metadata]);
+            }
+            $receipt->update(['status' => 'cancelled', 'paid' => '0', 'metadata' => ($receipt->metadata ?? []) + ['cancel_reason' => $reason, 'cancelled_on' => now()->toDateString()]]);
         }, 3);
     }
 
@@ -184,11 +257,73 @@ class InvoiceService
 
     private function header(Admin $actor, string $type, array $data, string $status, array $metadata, ?int $source = null): Invoice
     {
-        D::check(Warehouse::whereKey($data['warehouse_id'])->where('active', true)->exists(), 'inactive_record');
+        D::check(empty($data['warehouse_id']) ? $type === self::RECEIPT : Warehouse::whereKey($data['warehouse_id'])->where('active', true)->exists(), 'inactive_record');
+        [$currency, $rate] = $this->currency($data);
         return Invoice::create(['number' => Context::number($type, $data['date']), 'type' => $type, 'status' => $status,
-            'date' => $data['date'], 'partner_id' => $data['partner_id'] ?? null, 'warehouse_id' => $data['warehouse_id'],
-            'currency' => Context::setting('currency', 'JOD'), 'notes' => $data['notes'] ?? null, 'created_by' => $actor->id,
+            'date' => $data['date'], 'partner_id' => $data['partner_id'] ?? null, 'warehouse_id' => $data['warehouse_id'] ?? null,
+            'currency' => $currency, 'exchange_rate' => $rate, 'notes' => $data['notes'] ?? null, 'created_by' => $actor->id,
             'source_id' => $source, 'metadata' => $metadata]);
+    }
+
+    /** The document currency and its rate to the base currency. The base currency is always 1; others default to the saved rate. */
+    private function currency(array $data): array
+    {
+        $code = strtoupper(trim((string) ($data['currency'] ?? ''))) ?: Currency::base();
+        $currency = Currency::where('code', $code)->first();
+        D::check($currency && $currency->active, 'invalid_currency');
+        if ($code === Currency::base()) { return [$code, '1.000000']; }
+        $rate = isset($data['exchange_rate']) && $data['exchange_rate'] !== '' ? D::of((string) $data['exchange_rate']) : D::of($currency->exchange_rate);
+        D::check(D::cmp($rate) > 0, 'invalid_exchange_rate');
+        return [$code, $rate];
+    }
+
+    /** Applies up to $amount of a receipt to the customer's open invoices in its currency: the chosen invoice first, then the oldest. */
+    private function allocate(Invoice $receipt, string $amount, ?int $invoiceId = null): array
+    {
+        $open = Invoice::where('type', 'sales_invoice')->where('status', 'posted')->where('partner_id', $receipt->partner_id)
+            ->where('currency', $receipt->currency)->whereColumn('paid', '<', 'total')->orderBy('date')->orderBy('id')->lockForUpdate()->get();
+        if ($invoiceId) {
+            $chosen = $open->firstWhere('id', $invoiceId);
+            D::check((bool) $chosen, 'receipt_invoice_mismatch');
+            $open = collect([$chosen])->merge($open->reject(fn ($invoice) => $invoice->id === $chosen->id));
+        }
+        $allocations = []; $remaining = $amount; $key = 'receipt:'.$receipt->id;
+        foreach ($open as $invoice) {
+            if (D::cmp($remaining) <= 0) { break; }
+            $due = D::sub($invoice->total, $invoice->paid);
+            $take = D::cmp($remaining, $due) >= 0 ? $due : $remaining;
+            $metadata = $invoice->metadata ?? [];
+            $previous = $metadata['payments'][$key]['amount'] ?? '0';
+            $metadata['payments'][$key] = ['amount' => D::add($previous, $take), 'date' => $metadata['payments'][$key]['date'] ?? $receipt->date->format('Y-m-d'),
+                'receipt_id' => $receipt->id, 'receipt_number' => $receipt->number];
+            $invoice->update(['paid' => D::add($invoice->paid, $take), 'metadata' => $metadata]);
+            $allocations[] = ['invoice_id' => $invoice->id, 'number' => $invoice->number, 'amount' => $take];
+            $remaining = D::sub($remaining, $take);
+        }
+        return $allocations;
+    }
+
+    /** Merges new allocations into the receipt's list (one row per invoice). */
+    private function recordAllocations(Invoice $receipt, array $allocations): void
+    {
+        $metadata = $receipt->metadata ?? []; $rows = collect($metadata['allocations'] ?? [])->keyBy('invoice_id');
+        foreach ($allocations as $allocation) {
+            $row = $rows->get($allocation['invoice_id']);
+            $rows->put($allocation['invoice_id'], $row ? array_replace($row, ['amount' => D::add($row['amount'], $allocation['amount'])]) : $allocation);
+        }
+        $metadata['allocations'] = $rows->values()->all();
+        $receipt->update(['paid' => D::add($receipt->paid, D::sum(array_column($allocations, 'amount'))), 'metadata' => $metadata]);
+    }
+
+    /** Detaches a receipt's payment from an invoice that is being cancelled; the amount stays on the customer's account as credit. */
+    private function release(Invoice $invoice, array $payment): void
+    {
+        $receipt = Invoice::where('type', self::RECEIPT)->lockForUpdate()->find($payment['receipt_id']);
+        if (!$receipt) { return; }
+        $metadata = $receipt->metadata ?? [];
+        $metadata['allocations'] = array_values(array_filter($metadata['allocations'] ?? [], fn ($row) => (int) $row['invoice_id'] !== $invoice->id));
+        $metadata['released'][] = ['invoice_id' => $invoice->id, 'number' => $invoice->number, 'amount' => $payment['amount'], 'date' => now()->toDateString()];
+        $receipt->update(['paid' => D::sub($receipt->paid, $payment['amount']), 'metadata' => $metadata]);
     }
 
     private function voucherLine(Invoice $voucher, Product $product, string $quantity): void

@@ -12,7 +12,7 @@
     <button class="btn primary">{{ __('erp.show_statement') }}</button>
 </form>
 <div class="table-wrap"><table><thead><tr>
-    <th>{{ __('erp.name') }}</th><th>{{ __('erp.phone') }}</th><th>{{ __('erp.balance_'.$kind) }}</th><th class="no-print">{{ __('erp.actions') }}</th>
+    <th>{{ __('erp.name') }}</th><th>{{ __('erp.phone') }}</th><th>{{ __('erp.balance_'.$kind) }} ({{ $base }})</th><th class="no-print">{{ __('erp.actions') }}</th>
 </tr></thead><tbody>
 @forelse($partners as $partner)
 <tr><td>{{ $partner->label }}</td><td dir="ltr">{{ $partner->phone }}</td><td>{{ \App\Support\Admin\Format::money($balances[$partner->id] ?? '0') }}</td>

@@ -33,7 +33,7 @@ class Context
         DB::table('erp_sequences')->insertOrIgnore(['type' => $type, 'year' => $year, 'next_number' => 1]);
         $row = DB::table('erp_sequences')->where('type', $type)->where('year', $year)->lockForUpdate()->first();
         DB::table('erp_sequences')->where('id', $row->id)->increment('next_number');
-        $prefix = ['sales_invoice' => 'SI', 'purchase_invoice' => 'PI', 'adjustment' => 'ST', 'proforma_invoice' => 'PF', 'receipt_voucher' => 'GR', 'issue_voucher' => 'GI'][$type];
+        $prefix = ['sales_invoice' => 'SI', 'purchase_invoice' => 'PI', 'adjustment' => 'ST', 'proforma_invoice' => 'PF', 'receipt_voucher' => 'GR', 'issue_voucher' => 'GI', 'cash_receipt' => 'RC'][$type];
         return $prefix.'-'.$year.'-'.str_pad((string) $row->next_number, 6, '0', STR_PAD_LEFT);
     }
 

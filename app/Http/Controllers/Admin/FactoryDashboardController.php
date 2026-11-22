@@ -17,7 +17,7 @@ class FactoryDashboardController extends Controller
             if ($actor->can('erp.'.$module.'.view')) {
                 $types[] = $type;
                 $rows = Invoice::where('type', $type)->where('status', 'posted')->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->toDateString()])->get();
-                $cards[$type] = D::sum($rows->pluck('total'));
+                $cards[$type] = D::sum($rows->map(fn ($row) => $row->base($row->total))); // converted to the base currency
             }
         }
         if ($actor->can('erp.products.view')) { $cards['products'] = Product::where('active', true)->count(); }

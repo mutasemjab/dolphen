@@ -10,7 +10,7 @@
 @section('content')
 <div class="metric-grid">
 @foreach($cards as $label => $value)
-    <div class="metric"><span>{{ __('erp.'.$label) }}</span><strong>{{ in_array($label, ['products','employees']) ? $value : \App\Support\Admin\Format::money($value) }}</strong></div>
+    <div class="metric"><span>{{ __('erp.'.$label) }}</span><strong>{{ in_array($label, ['products','employees']) ? $value : \App\Support\Admin\Format::money($value).' '.\App\Models\Admin\Currency::base() }}</strong></div>
 @endforeach
 </div>
 <section class="panel">
@@ -21,7 +21,7 @@
     </tr></thead><tbody>
     @forelse($invoices as $invoice)
         <tr><td><a href="{{ route('admin.invoices.show',$invoice) }}">{{ $invoice->number }}</a></td><td>{{ $invoice->date->format('Y-m-d') }}</td>
-        <td>{{ __('erp.'.$invoice->type) }}</td><td>{{ $invoice->partner?->label }}</td><td>{{ \App\Support\Admin\Format::money($invoice->total) }}</td>
+        <td>{{ __('erp.'.$invoice->type) }}</td><td>{{ $invoice->partner?->label }}</td><td>{{ \App\Support\Admin\Format::money($invoice->total, $invoice->currency) }} {{ $invoice->currency }}</td>
         <td><span class="badge {{ $invoice->status }}">{{ __('erp.'.$invoice->status) }}</span></td></tr>
     @empty<tr><td colspan="6" class="empty">{{ __('erp.no_invoices') }}</td></tr>
     @endforelse

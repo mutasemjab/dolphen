@@ -14,8 +14,9 @@ class Format
         $whole = preg_replace('/\B(?=(\d{3})+(?!\d))/', ',', $whole);
         return $whole.($scale ? '.'.$fraction : '');
     }
-    public static function money($value): string
+    /** Amount rounded to its currency's decimals; the base currency when none is given. */
+    public static function money($value, ?string $currency = null): string
     {
-        return self::number($value, (int) Context::setting('currency_decimals', '3'));
+        return self::number($value, $currency ? \App\Models\Admin\Currency::decimalsFor($currency) : (int) Context::setting('currency_decimals', '3'));
     }
 }

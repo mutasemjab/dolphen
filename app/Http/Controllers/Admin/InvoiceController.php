@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Admin\{Invoice, Partner, Product, Warehouse};
+use App\Models\Admin\{Currency, Invoice, Partner, Product, Warehouse};
 use App\Services\Admin\{Context, InvoiceService};
 use App\Support\Admin\Decimal as D;
 use Illuminate\Http\Request;
@@ -27,7 +27,9 @@ class InvoiceController extends Controller
         $counted = (clone $query)->where('status', $type === 'proforma_invoice' ? 'open' : 'posted')->get();
         return view('admin.invoices.index', ['type' => $type, 'invoices' => $query->latest('id')->paginate(20)->withQueryString(),
             'partners' => $this->partners($type, false),
-            'total' => D::sum($counted->pluck('total')), 'remaining' => D::sub(D::sum($counted->pluck('total')), D::sum($counted->pluck('paid')))]);
+            // Amounts in different currencies are never added together.
+            'totals' => $counted->groupBy('currency')->map(fn ($rows) => ['total' => D::sum($rows->pluck('total')),
+                'remaining' => D::sub(D::sum($rows->pluck('total')), D::sum($rows->pluck('paid')))])]);
     }
 
     public function create(Request $request, string $type)
@@ -39,6 +41,7 @@ class InvoiceController extends Controller
             if ($proforma->status !== 'open') { return redirect()->route('admin.invoices.show', $proforma)->withErrors(['document' => __('erp.proforma_not_open')]); }
         }
         return view('admin.invoices.form', ['type' => $type, 'proforma' => $proforma, 'partners' => $this->partners($type),
+            'currencies' => Currency::where('active', true)->orderBy('id')->get(),
             'warehouses' => Warehouse::where('active', true)->get(),
             'products' => Product::with('baseUnit')->where('active', true)->when(InvoiceService::sells($type), fn ($q) => $q->where('item_type', '!=', 'raw'))->orderBy('name_ar')->get()]);
     }

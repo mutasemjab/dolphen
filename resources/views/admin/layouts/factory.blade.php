@@ -1,5 +1,6 @@
 @php($locale = app()->getLocale())
 @php($companyName = auth('admin')->check() ? \App\Services\Admin\Context::setting('company_name_'.$locale, __('erp.factory')) : __('erp.factory'))
+@php($taxNumber = auth('admin')->check() ? \App\Services\Admin\Context::setting('tax_number', __('erp.company_tax_number')) : __('erp.company_tax_number'))
 <!doctype html>
 <html lang="{{ $locale }}" dir="{{ $locale === 'ar' ? 'rtl' : 'ltr' }}">
 <head>
@@ -16,7 +17,7 @@
 <body>
 @auth('admin')
 <aside class="sidebar" id="sidebar">
-    <a class="brand" href="{{ route('admin.dashboard') }}"><span class="brand-mark">D</span><span>{{ $companyName }}</span></a>
+    <a class="brand" href="{{ route('admin.dashboard') }}"><span class="brand-mark">{{ __('erp.brand_initial') }}</span><span>{{ $companyName }}<small>{{ __('erp.tax_number') }}: {{ $taxNumber }}</small></span></a>
     <nav aria-label="{{ __('erp.navigation') }}">
         @foreach(\App\Support\Admin\Navigation::groups() as $group => $links)
             @php($visible = array_filter($links, fn($link) => auth('admin')->user()->can($link[2])))
@@ -51,6 +52,7 @@
         </div>
     </header>
     <main>
+        <div class="print-header"><strong>{{ $companyName }}</strong><span>{{ __('erp.tax_number') }}: {{ $taxNumber }}</span></div>
         <div class="page-heading"><div><h1>@yield('title')</h1><p>@yield('subtitle')</p></div><div class="actions no-print">@yield('actions')</div></div>
         @if(session('success'))<div class="alert success" role="status">{{ session('success') }}</div>
         @endif

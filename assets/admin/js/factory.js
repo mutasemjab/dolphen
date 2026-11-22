@@ -89,6 +89,57 @@ document.addEventListener('DOMContentLoaded', () => {
     const sync = () => { const raw = select.value === 'raw'; price.closest('.field').hidden = raw; price.disabled = raw; price.required = !raw; };
     select.addEventListener('change', sync); sync();
   });
+  // Currency: the base currency has a fixed rate of 1; other currencies start from their saved rate.
+  const currencyRate = form => {
+    const select = form?.querySelector('[data-currency-select]'); const input = form?.querySelector('[data-exchange-rate]');
+    return select && select.value !== select.dataset.base ? (parseFloat(input?.value) || 0) : 1;
+  };
+  // Product prices are kept in the base currency; show them in the document currency.
+  const convertedPrice = (form, basePrice) => {
+    const rate = currencyRate(form); const select = form?.querySelector('[data-currency-select]');
+    if (rate === 1 || !rate) return decimalText(basePrice || '0');
+    const places = Number(select.selectedOptions[0]?.dataset.decimals || 2);
+    return decimalText(((parseFloat(basePrice) || 0) / rate).toFixed(places));
+  };
+  const syncCurrency = (select, changed) => {
+    const form = select.form; const input = form.querySelector('[data-exchange-rate]'); const option = select.selectedOptions[0];
+    const base = select.value === select.dataset.base;
+    if (input) {
+      input.closest('[data-rate-field]').hidden = base; input.readOnly = base;
+      if (base) input.value = '1'; else if (changed) input.value = option?.dataset.rate || '';
+    }
+    const totals = form.querySelector('[data-invoice-totals]'); if (totals && option) totals.dataset.decimals = option.dataset.decimals;
+    if (changed) repriceAuto(form);
+    filterReceiptInvoices(form);
+    recalc(form);
+  };
+  // Re-price only lines whose price was filled automatically and not edited since.
+  const repriceAuto = form => form.querySelectorAll('[data-line]').forEach(row => {
+    const price = row.querySelector('[data-unit-price]'); const option = row.querySelector('[data-product-select]')?.selectedOptions[0];
+    if (price && option?.value && price.dataset.auto === price.value) { price.value = price.dataset.auto = convertedPrice(form, option.dataset.price); }
+  });
+  const filterReceiptInvoices = form => {
+    const invoices = form?.querySelector('[data-receipt-invoice] select'); if (!invoices) return;
+    const partner = form.elements.partner_id?.value; const currency = form.elements.currency?.value;
+    invoices.querySelectorAll('option[data-partner]').forEach(option => { option.disabled = option.dataset.partner !== partner || option.dataset.currency !== currency; });
+    if (invoices.selectedOptions[0]?.disabled) setSelect(invoices, '');
+    if ($ && $.fn.select2 && invoices.classList.contains('select2-hidden-accessible')) $(invoices).trigger('change.select2');
+  };
+  document.querySelectorAll('[data-currency-select]').forEach(select => {
+    select.addEventListener('change', () => syncCurrency(select, true));
+    select.form.querySelector('[data-exchange-rate]')?.addEventListener('input', () => { repriceAuto(select.form); recalc(select.form); });
+    syncCurrency(select, false);
+  });
+  document.querySelectorAll('[data-receipt-form]').forEach(form => {
+    const method = form.elements.payment_method; const cheque = form.querySelector('[data-cheque-fields]');
+    const sync = () => {
+      const kind = method.value; cheque.hidden = kind === 'cash' || !kind;
+      ['cheque_number', 'cheque_date'].forEach(name => { form.elements[name].required = kind === 'cheque'; form.elements[name].closest('.field').hidden = kind !== 'cheque'; });
+    };
+    method.addEventListener('change', sync); sync();
+    form.elements.partner_id.addEventListener('change', () => filterReceiptInvoices(form));
+    filterReceiptInvoices(form);
+  });
   document.querySelectorAll('[data-add-line]').forEach(button => button.addEventListener('click', () => {
     const template = document.getElementById(button.dataset.addLine);
     const target = document.getElementById(button.dataset.target);
@@ -104,7 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (event.target.matches('[data-product-select]')) {
       const option = event.target.selectedOptions[0]; const row = event.target.closest('[data-line]');
       const price = row.querySelector('[data-unit-price]');
-      if (price) price.value = decimalText(option?.dataset.price || '0');
+      if (price) price.value = price.dataset.auto = convertedPrice(event.target.form, option?.dataset.price || '0');
       // Use the product's own warehouse when the document has none yet.
       const warehouse = event.target.form?.elements.warehouse_id;
       if (warehouse && !warehouse.value && option?.dataset.warehouse && warehouse.querySelector(`option[value="${option.dataset.warehouse}"]`)) setSelect(warehouse, option.dataset.warehouse);
